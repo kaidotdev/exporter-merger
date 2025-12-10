@@ -78,6 +78,11 @@ func (app *App) Bind(cmd *cobra.Command) {
 		"Include debug messages to output (ENV:MERGER_VERBOSE)")
 	app.viper.BindPFlag("verbose", cmd.PersistentFlags().Lookup("verbose"))
 
+	cmd.PersistentFlags().Bool(
+		"deduplicate", false,
+		"Remove duplicate metrics with the same name and label set, keeping the first occurrence. (ENV:MERGER_DEDUPLICATE)")
+	app.viper.BindPFlag("deduplicate", cmd.PersistentFlags().Lookup("deduplicate"))
+
 	cmd.PersistentFlags().StringSlice(
 		"url", nil,
 		"URL to scrape. Can be speficied multiple times. (ENV:MERGER_URLS,space-seperated)")
@@ -88,6 +93,7 @@ func (app *App) run(cmd *cobra.Command, args []string) {
 	http.Handle("/metrics", Handler{
 		Exporters:            app.viper.GetStringSlice("urls"),
 		ExportersHTTPTimeout: app.viper.GetInt("exporterstimeout"),
+		Deduplicate:          app.viper.GetBool("deduplicate"),
 	})
 
 	port := app.viper.GetInt("port")

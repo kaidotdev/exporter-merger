@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 type Handler struct {
 	Exporters            []string
 	ExportersHTTPTimeout int
+	Deduplicate          bool
 }
 
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +70,12 @@ func (h Handler) Merge(w io.Writer) {
 			} else {
 				mfs[n] = mf
 			}
+		}
+	}
 
+	if h.Deduplicate {
+		for n, mf := range mfs {
+			mfs[n] = deduplicateMetricFamily(mf)
 		}
 	}
 
@@ -85,4 +93,30 @@ func (h Handler) Merge(w io.Writer) {
 			return
 		}
 	}
+}
+
+func deduplicateMetricFamily(mf *prom.MetricFamily) *prom.MetricFamily {
+	seen := make(map[string]bool)
+	deduplicated := make([]*prom.Metric, 0, len(mf.Metric))
+
+	for _, m := range mf.Metric {
+		signature := labelSignature(m.GetLabel())
+		if seen[signature] {
+			continue
+		}
+		seen[signature] = true
+		deduplicated = append(deduplicated, m)
+	}
+
+	mf.Metric = deduplicated
+	return mf
+}
+
+func labelSignature(labels []*prom.LabelPair) string {
+	parts := make([]string, 0, len(labels))
+	for _, label := range labels {
+		parts = append(parts, fmt.Sprintf("%s=%s", label.GetName(), label.GetValue()))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
 }

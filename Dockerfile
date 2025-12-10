@@ -1,23 +1,24 @@
-FROM golang:1.19-alpine AS build-env
+# syntax=docker/dockerfile:1.4
 
-RUN apk add --no-cache git make
+FROM golang:1.24-bullseye AS builder
 
-# Configure Go
-ENV GOPATH /go
-ENV PATH /go/bin:$PATH
-ENV GO111MODULE=off
-RUN mkdir -p ${GOPATH}/src ${GOPATH}/bin
+ENV CGO_ENABLED=0
 
-# Install Go Tools
-RUN go get -u golang.org/x/lint/golint
-RUN go get -u github.com/golang/dep/cmd/dep
+WORKDIR /opt/builder
 
-ADD . /go/src/github.com/rebuy-de/exporter-merger/
-RUN cd /go/src/github.com/rebuy-de/exporter-merger/ && make vendor && CGO_ENABLED=0 make install
+COPY go.mod go.sum /opt/builder/
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
-# final stage
-FROM alpine
+COPY main.go /opt/builder/main.go
+COPY cmd /opt/builder/cmd
+ARG LD_FLAGS="-s -w"
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go build -trimpath -o /usr/local/bin/main -ldflags="${LD_FLAGS}" /opt/builder/*.go
+
+FROM gcr.io/distroless/static:nonroot
 WORKDIR /app
-COPY --from=build-env /go/src/github.com/rebuy-de/exporter-merger/merger.yaml /app/
-COPY --from=build-env /go/bin/exporter-merger /app/
-ENTRYPOINT ./exporter-merger
+COPY merger.yaml /app/
+COPY --link --from=builder /usr/local/bin/main /usr/local/bin/exporter-merger
+
+USER 65532
+
+ENTRYPOINT ["/usr/local/bin/exporter-merger"]

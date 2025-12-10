@@ -1,0 +1,44 @@
+name: exporter-merger
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs: {}
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: write
+  packages: write
+jobs:
+  publish:
+    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    env:
+      IMAGE: exporter-merger
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/docker-build
+          key: ${{ runner.os }}-exporter-merger-docker-${{ hashFiles('Dockerfile') }}
+          restore-keys: |
+            ${{ runner.os }}-exporter-merger-docker-
+      - run: docker login ghcr.io -u ${GITHUB_REPOSITORY_OWNER} -p ${{ github.token }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - run: |
+          IMAGE_PATH=${GITHUB_REPOSITORY}
+          GHCR_IMAGE=ghcr.io/${IMAGE_PATH}
+          TAG=${GITHUB_REF##*/}
+          opt=""
+          if [ -d /home/runner/.cache/docker-build ]; then
+            opt="--cache-from type=local,src=/home/runner/.cache/docker-build"
+          else
+            opt="--cache-from type=registry,ref=$GHCR_IMAGE:main"
+          fi
+
+          docker buildx build --output type=docker,name=$GHCR_IMAGE:$TAG,push=false ${opt} --cache-to type=local,mode=max,dest=/home/runner/.cache/docker-build .
+
+          docker push $GHCR_IMAGE:$TAG
